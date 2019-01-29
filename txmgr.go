@@ -9,14 +9,19 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/sirupsen/logrus"
 )
 
+// ethCli represents the interface we need to assess a tx
+type ethCli interface {
+	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
+	ethereum.TransactionReader
+}
+
 // TxMgr will allow listening to transactions
 type TxMgr struct {
-	Logger          *logrus.Logger
-	Cli             *ethclient.Client
+	Logger          logrus.StdLogger
+	Cli             ethCli
 	BlockCountValid int64
 	PollingInterval time.Duration
 	PollingTimeOut  time.Duration
@@ -24,14 +29,14 @@ type TxMgr struct {
 
 // NewTxMgr will return an TxListener entity
 func NewTxMgr(
-	logger *logrus.Logger,
-	cli *ethclient.Client,
+	lg logrus.StdLogger,
+	cli ethCli,
 	bcv int64,
 	pi time.Duration,
 	pto time.Duration,
 ) *TxMgr {
 	return &TxMgr{
-		Logger:          logger,
+		Logger:          lg,
 		Cli:             cli,
 		BlockCountValid: bcv,
 		PollingInterval: pi,
@@ -174,13 +179,24 @@ func (txm *TxMgr) checkTxStatus(
 	ctx context.Context,
 	txH common.Hash,
 ) TxStatus {
+	_, isPending, errTbH := txm.Cli.TransactionByHash(ctx, txH)
+	if errTbH != nil {
+		return TxError
+	}
+	if isPending {
+		return TxPending
+	}
+
 	rec, errTxR := txm.Cli.TransactionReceipt(ctx, txH)
 	if errTxR == ethereum.NotFound {
 		return TxNotFound
 	}
+	if errTxR != nil {
+		return TxError
+	}
 	// if incomplete receipt
 	if rec == nil {
-		return TxNotFound
+		return TxPending
 	}
 	// if rec.Status == types.ReceiptStatusFailed {
 	// 	return false, nil
