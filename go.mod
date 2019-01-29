@@ -11,6 +11,7 @@ require (
 	github.com/jmoiron/sqlx v1.2.0 // indirect
 	github.com/mattn/go-sqlite3 v1.10.0 // indirect
 	github.com/rs/cors v1.6.0 // indirect
+	github.com/sirupsen/logrus v1.3.0
 	github.com/syndtr/goleveldb v0.0.0-20181128100959-b001fa50d6b2 // indirect
 	github.com/vincentserpoul/gostorage v1.0.9 // indirect
 	golang.org/x/crypto v0.0.0-20190128193316-c7b33c32a30b // indirect
