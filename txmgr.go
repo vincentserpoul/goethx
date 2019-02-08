@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
@@ -25,6 +26,8 @@ type TxMgr struct {
 	BlockCountValid int64
 	PollingInterval time.Duration
 	PollingTimeOut  time.Duration
+	TxProcessing    map[common.Hash]bool
+	Mutex           *sync.Mutex
 }
 
 // NewTxMgr will return an TxListener entity
@@ -41,6 +44,8 @@ func NewTxMgr(
 		BlockCountValid: bcv,
 		PollingInterval: pi,
 		PollingTimeOut:  pto,
+		TxProcessing:    make(map[common.Hash]bool),
+		Mutex:           &sync.Mutex{},
 	}
 }
 
@@ -48,20 +53,34 @@ func NewTxMgr(
 type TxMsg struct {
 	Hash   common.Hash
 	Status TxStatus
-	Error  error
+	Err    error
 }
 
 func (txm *TxMgr) lock(
-	ctx context.Context,
+	ctx context.Context, // nolint unparam
 	txH common.Hash,
 ) error {
+	if _, ok := txm.TxProcessing[txH]; ok {
+		return fmt.Errorf("lock: already monitored tx %s", txH.String())
+	}
+	txm.Mutex.Lock()
+	txm.TxProcessing[txH] = true
+	txm.Mutex.Unlock()
+
 	return nil
 }
 
 func (txm *TxMgr) unlock(
-	ctx context.Context,
+	ctx context.Context, // nolint unparam
 	txH common.Hash,
 ) error {
+	if _, ok := txm.TxProcessing[txH]; !ok {
+		return fmt.Errorf("lock: not monitored tx %s", txH.String())
+	}
+	txm.Mutex.Lock()
+	delete(txm.TxProcessing, txH)
+	txm.Mutex.Unlock()
+
 	return nil
 }
 
@@ -69,13 +88,15 @@ func (txm *TxMgr) unlock(
 func (txm *TxMgr) MonitorTx(
 	ctx context.Context,
 	txH common.Hash,
-	chTx chan<- TxMsg,
+	chTx chan TxMsg,
 ) {
-	if err := txm.lock(ctx, txH); err != nil {
+	ctxWT, cancel := context.WithTimeout(ctx, txm.PollingTimeOut)
+	defer cancel()
+	if err := txm.lock(ctxWT, txH); err != nil {
 		chTx <- TxMsg{
 			Hash:   txH,
 			Status: TxError,
-			Error: fmt.Errorf(
+			Err: fmt.Errorf(
 				"MonitorTx(%s): %v",
 				txH.String(), err,
 			),
@@ -83,7 +104,7 @@ func (txm *TxMgr) MonitorTx(
 		return
 	}
 	defer func() {
-		if err := txm.unlock(ctx, txH); err != nil {
+		if err := txm.unlock(ctxWT, txH); err != nil {
 			txm.Logger.Fatalf(
 				"MonitorTx(%s): %v",
 				txH.String(), err,
@@ -97,33 +118,39 @@ func (txm *TxMgr) MonitorTx(
 	for c := t.C; ; {
 		var errT error
 		var txS TxStatus
-		txS, succTxBlock, errT = txm.checkTx(ctx, txH, succTxBlock)
+		txS, succTxBlock, errT = txm.checkTx(ctxWT, txH, succTxBlock)
 		if errT != nil {
 			chTx <- TxMsg{
 				Hash:   txH,
 				Status: TxNil,
-				Error: fmt.Errorf(
+				Err: fmt.Errorf(
 					"MonitorTx(%s): %v",
 					txH.String(), errT,
 				),
 			}
+			return
 		}
 		if txS == TxSuccess {
 			chTx <- TxMsg{
 				Hash:   txH,
 				Status: TxSuccess,
-				Error:  nil,
+				Err:    nil,
 			}
+			return
 		}
 
 		select {
 		case <-c:
 			continue
-		case <-ctx.Done():
+		case <-ctxWT.Done():
 			chTx <- TxMsg{
 				Hash:   txH,
 				Status: TxTimeOut,
-				Error:  fmt.Errorf("MonitorTx(%s): time out", txH.String()),
+				Err: fmt.Errorf(
+					"MonitorTx(%s): time out after %s",
+					txH.String(),
+					txm.PollingTimeOut,
+				),
 			}
 			return
 		}
@@ -163,14 +190,13 @@ func (txm *TxMgr) enoughBlocksSince(
 	// Get current block number
 	hdr, errH := txm.Cli.HeaderByNumber(ctx, nil)
 	if errH != nil {
-		return false, fmt.Errorf("enoughBlocksSince(%d): %v", bn, errH)
+		return false, fmt.Errorf("enoughBlocksSince(%s): %v", bn, errH)
 	}
 
 	var expBN big.Int
-	if expBN.Add(bn, big.NewInt(txm.BlockCountValid)).Cmp(hdr.Number) == 1 {
+	if expBN.Add(bn, big.NewInt(txm.BlockCountValid)).Cmp(hdr.Number) <= 0 {
 		return true, nil
 	}
-
 	return false, nil
 }
 
@@ -180,6 +206,9 @@ func (txm *TxMgr) checkTxStatus(
 	txH common.Hash,
 ) TxStatus {
 	_, isPending, errTbH := txm.Cli.TransactionByHash(ctx, txH)
+	if errTbH == ethereum.NotFound {
+		return TxNotFound
+	}
 	if errTbH != nil {
 		return TxError
 	}
@@ -199,7 +228,7 @@ func (txm *TxMgr) checkTxStatus(
 		return TxPending
 	}
 	// if rec.Status == types.ReceiptStatusFailed {
-	// 	return false, nil
+	// 	return TxError
 	// }
 	if rec.Status == types.ReceiptStatusSuccessful {
 		return TxSuccess
