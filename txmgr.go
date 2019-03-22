@@ -90,9 +90,8 @@ func (txm *TxMgr) MonitorTx(
 	txH common.Hash,
 	chTx chan TxMsg,
 ) {
-	ctxWT, cancel := context.WithTimeout(ctx, txm.PollingTimeOut)
-	defer cancel()
-	if err := txm.lock(ctxWT, txH); err != nil {
+	timeout := time.After(txm.PollingTimeOut)
+	if err := txm.lock(ctx, txH); err != nil {
 		chTx <- TxMsg{
 			Hash:   txH,
 			Status: TxError,
@@ -104,7 +103,7 @@ func (txm *TxMgr) MonitorTx(
 		return
 	}
 	defer func() {
-		if err := txm.unlock(ctxWT, txH); err != nil {
+		if err := txm.unlock(ctx, txH); err != nil {
 			txm.Logger.Fatalf(
 				"MonitorTx(%s): %v",
 				txH.String(), err,
@@ -118,7 +117,7 @@ func (txm *TxMgr) MonitorTx(
 	for c := t.C; ; {
 		var errT error
 		var txS TxStatus
-		txS, succTxBlock, errT = txm.checkTx(ctxWT, txH, succTxBlock)
+		txS, succTxBlock, errT = txm.checkTx(ctx, txH, succTxBlock)
 		if errT != nil {
 			chTx <- TxMsg{
 				Hash:   txH,
@@ -142,7 +141,7 @@ func (txm *TxMgr) MonitorTx(
 		select {
 		case <-c:
 			continue
-		case <-ctxWT.Done():
+		case <-timeout:
 			chTx <- TxMsg{
 				Hash:   txH,
 				Status: TxTimeOut,
