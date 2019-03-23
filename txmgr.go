@@ -76,8 +76,8 @@ func (txm *TxMgr) MonitorTx(
 				Hash:   txH,
 				Status: TxNil,
 				Err: fmt.Errorf(
-					"MonitorTx(%s): %v",
-					txH.String(), errT,
+					"MonitorTx(%s): %v - tx status %s",
+					txH.String(), errT, txS.String(),
 				),
 			}
 			return
@@ -99,9 +99,10 @@ func (txm *TxMgr) MonitorTx(
 				Hash:   txH,
 				Status: TxTimeOut,
 				Err: fmt.Errorf(
-					"MonitorTx(%s): time out after %s",
+					"MonitorTx(%s): time out after %s with status %s",
 					txH.String(),
 					txm.PollingTimeOut,
+					txS.String(),
 				),
 			}
 			return
