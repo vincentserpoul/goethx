@@ -106,6 +106,16 @@ func (txm *TxMgr) MonitorTx(
 				),
 			}
 			return
+		case <-ctx.Done():
+			chTx <- TxMsg{
+				Hash:   txH,
+				Status: TxTimeOut,
+				Err: fmt.Errorf(
+					"MonitorTx(%s): context was canceled",
+					txH.String(),
+				),
+			}
+			return
 		}
 	}
 }
