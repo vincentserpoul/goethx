@@ -69,7 +69,6 @@ func TestNewTxMgr(t *testing.T) {
 func TestTxMgr_MonitorTx(t *testing.T) {
 	tests := []struct {
 		name            string
-		txLocked        bool
 		txTimeOut       bool
 		isTBHPending    bool
 		isTRFailure     bool
@@ -87,11 +86,6 @@ func TestTxMgr_MonitorTx(t *testing.T) {
 			name:       "header by number error",
 			withHBNErr: true,
 			expectErr:  true,
-		},
-		{
-			name:      "tx locked error",
-			txLocked:  true,
-			expectErr: true,
 		},
 		{
 			name:      "tx timeout",
@@ -170,9 +164,6 @@ func TestTxMgr_MonitorTx(t *testing.T) {
 				timeout,
 			)
 			chTx := make(chan TxMsg)
-			if tt.txLocked {
-				_ = txMon.lock(ctx, txH)
-			}
 			go txMon.MonitorTx(ctx, txH, chTx)
 			msg := <-chTx
 			ctx.Done()

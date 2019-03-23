@@ -56,34 +56,6 @@ type TxMsg struct {
 	Err    error
 }
 
-func (txm *TxMgr) lock(
-	ctx context.Context, // nolint unparam
-	txH common.Hash,
-) error {
-	if _, ok := txm.TxProcessing[txH]; ok {
-		return fmt.Errorf("lock: already monitored tx %s", txH.String())
-	}
-	txm.Mutex.Lock()
-	txm.TxProcessing[txH] = true
-	txm.Mutex.Unlock()
-
-	return nil
-}
-
-func (txm *TxMgr) unlock(
-	ctx context.Context, // nolint unparam
-	txH common.Hash,
-) error {
-	if _, ok := txm.TxProcessing[txH]; !ok {
-		return fmt.Errorf("lock: not monitored tx %s", txH.String())
-	}
-	txm.Mutex.Lock()
-	delete(txm.TxProcessing, txH)
-	txm.Mutex.Unlock()
-
-	return nil
-}
-
 // MonitorTx will monitor a tx until success, error or timeout
 func (txm *TxMgr) MonitorTx(
 	ctx context.Context,
@@ -91,25 +63,6 @@ func (txm *TxMgr) MonitorTx(
 	chTx chan TxMsg,
 ) {
 	timeout := time.After(txm.PollingTimeOut)
-	if err := txm.lock(ctx, txH); err != nil {
-		chTx <- TxMsg{
-			Hash:   txH,
-			Status: TxError,
-			Err: fmt.Errorf(
-				"MonitorTx(%s): %v",
-				txH.String(), err,
-			),
-		}
-		return
-	}
-	defer func() {
-		if err := txm.unlock(ctx, txH); err != nil {
-			txm.Logger.Fatalf(
-				"MonitorTx(%s): %v",
-				txH.String(), err,
-			)
-		}
-	}()
 
 	var succTxBlock *big.Int
 	t := time.NewTicker(txm.PollingInterval)
@@ -177,6 +130,8 @@ func (txm *TxMgr) checkTx(
 		}
 		if isEnough {
 			return TxSuccess, succTxBlock, nil
+		} else {
+			return TxSuccessNotEnoughBlocks, succTxBlock, nil
 		}
 	}
 	return TxPending, nil, nil
