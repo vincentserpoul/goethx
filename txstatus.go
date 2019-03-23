@@ -35,6 +35,8 @@ func (txs TxStatus) String() string {
 		return "tx error"
 	case TxTimeOut:
 		return "tx didn't not succeed within time"
+	case TxSuccessNotEnoughBlocks:
+		return "tx was successful but not enough blocks added before timeout"
 	case TxSuccess:
 		return "tx successful"
 	default:
