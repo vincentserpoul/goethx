@@ -13,6 +13,6 @@ chTx := make(chan goethx.TxMsg)
 go txm.MonitorTx(common.HexToHash("0x123"), chTx)
 msg := <- chTx
 if msg.Err != nil {
-    log.Fatalf("goethx.MonitorTx(%s): %v", common.Hex2Hash("0x123").String(), msg.Err)
+    log.Fatalf("goethx.MonitorTx(%s): %v", common.HexToHash("0x123").String(), msg.Err)
 }
 ```
